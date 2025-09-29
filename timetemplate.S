@@ -28,7 +28,7 @@ timstr: .asciz  "text more text lots of text\0"
  #   tail timetemplate
 
 # handle_interrupt: stub , 
-#handle_interrupt:
+handle_interrupt:
     ret
 #some board require an interrupt handler symbol even if it's a stub. Exporting symbols helps the linker.
 #############################################################

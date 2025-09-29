@@ -19,7 +19,8 @@ timstr: .asciz  "text more text lots of text\0"
          
 
     .text
-    .globl  main, handle_interrupt, timetemplate, tick, time2string, hexasc, delay, time2string, display_string
+    .globl tick, time2string, hexasc, delay, display_string
+   # .global main handle_interrupt, timetemplate, main,
 
 
 
@@ -28,8 +29,8 @@ timstr: .asciz  "text more text lots of text\0"
  #   tail timetemplate
 
 # handle_interrupt: stub , 
-handle_interrupt:
-    ret
+# handle_interrupt:
+   # ret
 #some board require an interrupt handler symbol even if it's a stub. Exporting symbols helps the linker.
 #############################################################
 # Optional RARS syscall print (won�t work on board itself)  #

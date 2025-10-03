@@ -1,5 +1,4 @@
-<<<<<<< HEAD
-=======
+
 /*
    Toggle this for (d) demo that halts at 1111 (set to 1), or keep 0 for (h)(the full clock with button/switch control):
 */
@@ -275,4 +274,4 @@ without debugging the generated assembly code.
   Since both functions return an int, the value will be in a0 when they return.
 */
 
->>>>>>> origin/main
+

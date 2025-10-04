@@ -4,6 +4,11 @@
 */
 #define STOP_AFTER_START_SEQUENCE 0 // (d)
 
+//Mariams Notes: 
+//This is saying: If set to 1: run a 4-bit LED counter 0->15 and then halt at 1111.
+//If set to 0: run the counter and then continue.
+//This is used in start_sequence with an if-block.
+
 
 /*-----------------------Standard headers--------------------------------*/
 
@@ -19,14 +24,11 @@
 #define DISP_STRIDE    0x10u      // each next display is +0x10 (e)
 #define BUTTON_ADDR    0x040000d0u   // push-button #2 adress (g)
 
+//Displays are in a contiguous block: display N is at DISP_BASE + N*DISP_STRIDE.
 
 #define LEDS     ((volatile unsigned int*) LEDS_ADDR) // volatile tells the compiler: this can change outside the program,-> (Volatile MMIO pointer to LEDs (c))
 #define SWITCHES ((volatile unsigned int*) SWITCHES_ADDR) //-> writing/reading through these pointers actually talks to the hardware. (Volatile MMIO pointer to switches (f))
 #define BUTTON   ((volatile unsigned int*) BUTTON_ADDR) //-> writing/reading through these pointers actually talks to the hardware. (Volatile MMIO pointer to button (g))
-
-
-
-
 
 
 /*----------------------------- Lab1 routines used in Lab3-----------------------------------------*/
@@ -73,6 +75,10 @@ void set_displays(int display_number, int value) { // (e)
   volatile unsigned int* disp = (volatile unsigned int*)(DISP_BASE + (unsigned)display_number * DISP_STRIDE);
   *disp = (unsigned int)value; // we write value directly. On this board, writing 0 lights a segement (active-low) (e)
   //this is a low level and  expects a segment pattern not a digit (e)
+  //What is value: 
+  //It's an 8-bit pattern that tells the hardware which segments to light.
+  //What does active-low mean?:
+  //that an 0 bit means "turn this segment ON" and a 1 bit means "turn this segment OFF"
 }
 
 
@@ -111,7 +117,7 @@ static void set_display_digit(int display_number, int digit) { // (e)
 int get_sw(void) {
   return (int)(*SWITCHES & 0x3FF); //mask to 10 bits (f)
 }
-
+//Reads the pattern of ON/OFF switches and returns it as a number
 
    //(g) read the second push-button
    // reads the button register and keeps bit 0. Returns 1 when pressed
@@ -119,6 +125,7 @@ int get_sw(void) {
 int get_btn(void) {
   return (int)(*BUTTON & 0x1); // 1 if pressed, else 0 (g)
 }
+//Checks if the button is currently pressed (returns 1) or not (returns 0).
 
 
 /*
@@ -270,8 +277,20 @@ int main(void) { // (a)-(h)
 2- In the generated assembly code, in which RISC-V register will the return values from
 functions get_btn and get_sw be placed in. You should be able to answer this question
 without debugging the generated assembly code.
-  a+(x10). Per the standard RISC-V calling convention, a function’s (single word) return value is placed in register a0.
+  a0+(x10). Per the standard RISC-V calling convention, a function’s (single word) return value is placed in register a0.
   Since both functions return an int, the value will be in a0 when they return.
 */
 
 
+//So to display a 3 on display 2:
+//1. finds display 2's memory address (0x04000070)
+//2. looks up the segment pattern for 3 (0xBO)
+//3. Writes 0xB0 to 0x04000070
+//4. Hardware lights up segments a,b,c,d,g = "3"
+
+//How the switches value is actually used:
+//get_sw() returns a 10-bit number where each bit mirrors a physical switch.
+//The number is then decoded with masks/shifts
+//SW8 and SW9 selects which hour,min,sec we want to change
+//SW0-SW4 are the value
+//only when the button is pressed get_btn()==1 do we apply the value to the selected field. 

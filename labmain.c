@@ -141,7 +141,7 @@ static void start_sequence(void) { //(d)
   }
 
 
-#if STOP_AFTER_START_SEQUENCE
+#if STOP_AFTER_START_SEQUENCE //if STOP_AFTER_SEQUENCE = 1
   for (;;); // stop (halt) when 1111 is reached (d)
 #else
   /* For (h): continue program after intro */

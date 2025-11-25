@@ -1,23 +1,51 @@
 /*
-  Mystery House - Interactive Fiction (no VGA)
-  Built from Lab3 template style:
+  Mystery House - Interactive Fiction 
   - Uses MMIO LEDs, Switches, Button
-  - Uses UART print/printc/print_dec (from dtekv-lib)
-  - Uses delay(ms) from timetemplate.S
+  - Uses UART print/printc/print_dec (from dtekv-lib) for OUTPUT text
+  - Uses delay(ms) from timetemplate.S only for small debounce
+
+  Controls (switch-only):
+    Use SW3..SW0 as command + argument, then press BTN.
+
+    CMD = SW3..SW2, ARG = SW1..SW0
+
+    CMD=00 (0): go
+       ARG=00: north
+       ARG=01: south
+       ARG=10: east
+       ARG=11: west
+
+    CMD=01 (1): take
+       ARG=00: flashlight
+       ARG=01: silver key
+       ARG=10: brass key
+
+    CMD=02 (2): use
+       ARG=00: flashlight
+       ARG=01: silver key
+       ARG=10: brass key
+
+    CMD=03 (3): misc
+       ARG=00: look
+       ARG=01: inventory
+       ARG=10: help
+
+  LEDs:
+    LED0 on  -> you have flashlight
+    LED1 on  -> you have silver key
+    LED2 on  -> you have brass key
 */
 
 #include <stdint.h>
 #include <stdbool.h>
 
-// Required by boot.S even if interrupts are unused
+/* Required by boot.S even if interrupts are unused. */
 void handle_interrupt(unsigned cause)
 {
     (void)cause;
 }
 
-
-
-/* ---------------------- Memory-mapped I/O (same as your Lab3) ------------------------- */
+/* ---------------------- Memory-mapped I/O ------------------------- */
 #define LEDS_ADDR      0x04000000u
 #define SWITCHES_ADDR  0x04000010u
 #define BUTTON_ADDR    0x040000d0u
@@ -27,84 +55,31 @@ void handle_interrupt(unsigned cause)
 #define BUTTON   ((volatile unsigned int*) BUTTON_ADDR)
 
 /* ---------------------- UART + delay from lab files ------------------ */
-extern void print(char*);              // JTAG UART string output :contentReference[oaicite:1]{index=1}
-extern void printc(char);              // JTAG UART char output :contentReference[oaicite:2]{index=2}
-extern void print_dec(unsigned int);   // print decimal number :contentReference[oaicite:3]{index=3}
-extern void delay(int);               // approx 1s delay from timetemplate.S :contentReference[oaicite:4]{index=4}
+extern void print(char*);
+extern void printc(char);
+extern void print_dec(unsigned int);
+extern void delay(int);
 
+/* ---------------------- Basic I/O helpers ------------------ */
 
-/* ---------------------- Basic I/O helpers (same as Lab3 style) ------------------ */
-
-// (c) LED output
+// LED output
 void set_leds(int led_mask) {
-  *LEDS = (unsigned int)(led_mask & 0x3FF); // only 10 LEDs exist :contentReference[oaicite:5]{index=5}
+  *LEDS = (unsigned int)(led_mask & 0x3FF); // only 10 LEDs exist
 }
 
-// (f) read 10 switches
+// read 10 switches
 int get_sw(void) {
-  return (int)(*SWITCHES & 0x3FF); // SW0..SW9 :contentReference[oaicite:6]{index=6}
+  return (int)(*SWITCHES & 0x3FF);
 }
 
-// (g) read push button
+// read push button
 int get_btn(void) {
-  return (int)(*BUTTON & 0x1); // BTN pressed = 1 :contentReference[oaicite:7]{index=7}
+  return (int)(*BUTTON & 0x1); // BTN pressed = 1
 }
-
-
-/* ---------------------- UART input (small new part, needed for commands) ------------------ */
-/* We reuse the same JTAG UART registers as dtekv-lib.c uses for printc. :contentReference[oaicite:8]{index=8} */
-#define JTAG_UART ((volatile unsigned int*) 0x04000040)
-#define JTAG_CTRL ((volatile unsigned int*) 0x04000044)
-
-// try to read one char (non-blocking). returns 1 if got char.
-static int uart_try_getc(char *out) {
-  unsigned int ctrl = *JTAG_CTRL;
-  if (ctrl & 0x00008000u) {          // RVALID
-    unsigned int data = *JTAG_UART;
-    *out = (char)(data & 0xFF);
-    return 1;
-  }
-  return 0;
-}
-
-// blocking getc
-static char uart_getc_blocking(void) {
-  char c;
-  while (!uart_try_getc(&c)) { }
-  return c;
-}
-
-// blocking line read into buf, echoes input
-static void uart_getline(char *buf, int maxlen) {
-  int i = 0;
-  while (1) {
-    char c = uart_getc_blocking();
-
-    if (c == '\r' || c == '\n') {   // end line
-      print("\n");
-      break;
-    }
-
-    // backspace
-    if ((c == 8 || c == 127) && i > 0) {
-      i--;
-      print("\b \b");
-      continue;
-    }
-
-    if (i < maxlen - 1) {
-      buf[i++] = c;
-      printc(c);                    // echo
-    }
-  }
-  buf[i] = '\0';
-}
-
 
 /* ---------------------- Game data ------------------ */
 
 #define NUM_ROOMS 9
-#define MAX_INPUT 64
 
 typedef struct {
   char *name;
@@ -112,7 +87,7 @@ typedef struct {
   int north, south, east, west;   // -1 = no exit
   bool dark;                      // needs flashlight ON
   bool locked;                    // door locked
-  char *lock_msg;                // printed if locked
+  char *lock_msg;                 // printed if locked
 
   bool item_flashlight;
   bool item_silver_key;
@@ -127,10 +102,7 @@ static bool has_silver_key = false;
 static bool has_brass_key = false;
 static bool flashlight_on = false;
 
-static int warmth = 6; // LEDs show warmth level
-
-
-/* ---------------------- Small string helpers (minimal C) ------------------ */
+/* ---------------------- Small string helper ------------------ */
 
 static int streq(char *a, char *b) {
   while (*a && *b) {
@@ -140,18 +112,17 @@ static int streq(char *a, char *b) {
   return (*a == 0 && *b == 0);
 }
 
-static void tolower_str(char *s) {
-  for (; *s; s++) {
-    if (*s >= 'A' && *s <= 'Z') *s = *s - 'A' + 'a';
-  }
-}
+/* ---------------------- LED status update ------------------ */
 
-// skip spaces
-static char* skip_space(char *s) {
-  while (*s == ' ' || *s == '\t') s++;
-  return s;
-}
+static void update_status_leds(void) {
+  int mask = 0;
 
+  if (has_flashlight) mask |= (1 << 0);  // LED0
+  if (has_silver_key) mask |= (1 << 1);  // LED1
+  if (has_brass_key)  mask |= (1 << 2);  // LED2
+
+  set_leds(mask);
+}
 
 /* ---------------------- UI printing ------------------ */
 
@@ -180,10 +151,6 @@ static void print_room(int id) {
   if (r->east  != -1) print(" east");
   if (r->west  != -1) print(" west");
   print("\n");
-
-  print("Warmth: ");
-  print_dec((unsigned)warmth);
-  print("\n");
 }
 
 static void enter_room(int id) {
@@ -191,21 +158,16 @@ static void enter_room(int id) {
   print_room(id);
 }
 
-static void update_warmth_leds(void) {
-  int mask = 0;
-  for (int i = 0; i < warmth; i++) mask |= (1 << i);
-  set_leds(mask);
-}
-
-
 /* ---------------------- Game logic ------------------ */
 
 static int can_enter(int to_id) {
   Room *to = &rooms[to_id];
 
   if (to->locked) {
-    print(to->lock_msg);
-    print("\n");
+    if (to->lock_msg) {
+      print(to->lock_msg);
+      print("\n");
+    }
     return 0;
   }
   if (to->dark && !(has_flashlight && flashlight_on)) {
@@ -244,6 +206,7 @@ static void handle_take(char *item) {
       cur->item_flashlight = false;
       has_flashlight = true;
       print("You pick up the flashlight.\n");
+      update_status_leds();
     } else print("No flashlight here.\n");
     return;
   }
@@ -253,6 +216,7 @@ static void handle_take(char *item) {
       cur->item_silver_key = false;
       has_silver_key = true;
       print("You take the silver key.\n");
+      update_status_leds();
     } else print("No silver key here.\n");
     return;
   }
@@ -262,6 +226,7 @@ static void handle_take(char *item) {
       cur->item_brass_key = false;
       has_brass_key = true;
       print("You take the brass key.\n");
+      update_status_leds();
     } else print("No brass key here.\n");
     return;
   }
@@ -323,10 +288,7 @@ static void print_inventory(void) {
 }
 
 static int check_end(void) {
-  if (warmth <= 0) {
-    print("\nYou collapse from the cold. Game over.\n");
-    return 1;
-  }
+  // Win condition: inside Exit Door room (8) and it is unlocked
   if (current_room == 8 && rooms[8].locked == false) {
     print("\nYou unlock the door and escape the Mystery House!\n");
     print("Congratulations!\n");
@@ -335,61 +297,90 @@ static int check_end(void) {
   return 0;
 }
 
+/* ---------------------- Switch-based command decoder ------------------ */
+/*
+   Use SW3..SW0 as command + argument, then press BTN:
 
-/* ---------------------- Command parsing (simple) ------------------ */
+   CMD = SW3..SW2, ARG = SW1..SW0
 
-static void process_command(char *line) {
-  char *s = skip_space(line);
-  tolower_str(s);
+   CMD=00 (0): go
+      ARG=00: north
+      ARG=01: south
+      ARG=10: east
+      ARG=11: west
 
-  // commands:
-  // go <dir>
-  // take <item>
-  // use <item>
-  // look
-  // inventory
-  // help
+   CMD=01 (1): take
+      ARG=00: flashlight
+      ARG=01: silver key
+      ARG=10: brass key
 
-  if (s[0] == 0) return;
+   CMD=02 (2): use
+      ARG=00: flashlight
+      ARG=01: silver key
+      ARG=10: brass key
 
-  if (s[0]=='g' && s[1]=='o' && s[2]==' ') {
-    handle_go(skip_space(s+3));
+   CMD=03 (3): misc
+      ARG=00: look
+      ARG=01: inventory
+      ARG=10: help
+*/
+
+static void run_switch_command(void) {
+  int sw = get_sw() & 0xF;   // use SW3..SW0
+  int cmd = (sw >> 2) & 0x3; // SW3..SW2
+  int arg = sw & 0x3;        // SW1..SW0
+
+  if (cmd == 0) {
+    // ------ go ------
+    if (arg == 0)      handle_go("north");
+    else if (arg == 1) handle_go("south");
+    else if (arg == 2) handle_go("east");
+    else if (arg == 3) handle_go("west");
+    else               print("Unknown GO selection.\n");
     return;
   }
 
-  if (s[0]=='t' && s[1]=='a' && s[2]=='k' && s[3]=='e' && s[4]==' ') {
-    handle_take(skip_space(s+5));
+  if (cmd == 1) {
+    // ------ take ------
+    if (arg == 0)      handle_take("flashlight");
+    else if (arg == 1) handle_take("silver key");
+    else if (arg == 2) handle_take("brass key");
+    else               print("Unknown TAKE selection.\n");
     return;
   }
 
-  if (s[0]=='u' && s[1]=='s' && s[2]=='e' && s[3]==' ') {
-    handle_use(skip_space(s+4));
+  if (cmd == 2) {
+    // ------ use ------
+    if (arg == 0)      handle_use("flashlight");
+    else if (arg == 1) handle_use("silver key");
+    else if (arg == 2) handle_use("brass key");
+    else               print("Unknown USE selection.\n");
     return;
   }
 
-  if (streq(s, "look")) {
-    print_room(current_room);
+  if (cmd == 3) {
+    // ------ misc ------
+    if (arg == 0) {
+      // look
+      print_room(current_room);
+    } else if (arg == 1) {
+      // inventory
+      print_inventory();
+    } else if (arg == 2) {
+      // help
+      print("Commands via switches:\n");
+      print("  CMD=00 go: ARG=00 N, 01 S, 10 E, 11 W\n");
+      print("  CMD=01 take: ARG=00 flash, 01 silver, 10 brass\n");
+      print("  CMD=02 use:  ARG=00 flash, 01 silver, 10 brass\n");
+      print("  CMD=03 misc: ARG=00 look, 01 inventory, 10 help\n");
+    } else {
+      print("Unknown MISC selection.\n");
+    }
     return;
   }
 
-  if (streq(s, "inventory") || streq(s, "inv")) {
-    print_inventory();
-    return;
-  }
-
-  if (streq(s, "help")) {
-    print("Commands:\n");
-    print("  go north/south/east/west\n");
-    print("  take flashlight | take silver key | take brass key\n");
-    print("  use flashlight | use silver key | use brass key\n");
-    print("  look, inventory, help\n");
-    print("Board movement: set SW1..SW0 then press BTN.\n");
-    return;
-  }
-
-  print("I don't understand. Type 'help'.\n");
+  print("Unknown command selection.\n");
 }
-
 
 /* ---------------------- World setup (9 rooms) ------------------ */
 
@@ -478,56 +469,31 @@ static void init_world(void) {
   };
 }
 
-
-/* ---------------------- Main (Lab3 polling style) ------------------ */
+/* ---------------------- Main ------------------ */
 
 int main(void) {
   init_world();
-  update_warmth_leds();
+  update_status_leds();  // show starting inventory (none)
 
   print("Mystery House (DTEK-V)\n");
-  print("Type 'help' for commands.\n");
+  print("Use switches + button for all commands.\n");
+  print("CMD=SW3..SW2, ARG=SW1..SW0, then press BTN.\n");
+  print("Set CMD=03 and ARG=10 then press BTN for help.\n");
   enter_room(0);
-
-  char input[MAX_INPUT];
 
   while (1) {
 
-    /* -------- board movement shortcut ----------
-       Use SW1..SW0 as direction:
-         00 north, 01 south, 10 east, 11 west
-       Press BTN to commit movement.
-    */
+    /* -------- switch-based command ---------- */
     if (get_btn()) {
-      int sw = get_sw() & 0x3;
+      run_switch_command();
+      delay(1); // debounce
 
-      if (sw == 0) handle_go("north");
-      if (sw == 1) handle_go("south");
-      if (sw == 2) handle_go("east");
-      if (sw == 3) handle_go("west");
-
-      delay(1); // small debounce
+      if (check_end()) break;
     }
-
-    /* -------- cold ticks (simple polling, no interrupts) -------- */
-    delay(2); // about 1 second
-    warmth--;
-    update_warmth_leds();
-    if (warmth > 0) {
-      print("\nThe house gets colder... Warmth now ");
-      print_dec((unsigned)warmth);
-      print("\n");
-    }
-
-    /* -------- UART command input -------- */
-    print("\n> ");
-    uart_getline(input, MAX_INPUT);
-    process_command(input);
-
-    if (check_end()) break;
   }
 
-  set_leds(0x3FF); // all LEDs on at end
+  // Game ended: turn all LEDs on
+  set_leds(0x3FF);
   for(;;);         // halt
 
   return 0;

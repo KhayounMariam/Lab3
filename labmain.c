@@ -563,26 +563,26 @@ int main (void) {
   //start in room 0 (Entrance Hall)
   enter_room(0);
 
-  //Main game loop
-  while (1) { //infinie loop game until break
-    if (get_btn()) { //wait for button press
-      run_switch_command(); //perform command based on switches
-    
+    //Main game loop
+  while (1) {
+    if (get_btn()) {
+      run_switch_command();
 
-    while (get_btn()) { //wait until button is released
-      delay(1); //tiny delay to use clock
-    }
+      while (get_btn()) {
+        delay(1);
+      }
 
-    if (check_end()) { //check if game ended (win condition)
-      break;
+      if (check_end()) {
+        break;
+      }
     }
   }
- }
 
-//Game over: turn all LEDs on and halt
-set_leds(0x3FF); //all 10 LEDs ON
-for(;;); //infinite loop (halt CPU) forever.
-return 0;
+  // Game over: turn all LEDs on and halt
+  set_leds(0x3FF);
+  for(;;);  // infinite halt
 
+  return 0;
 }
+
 

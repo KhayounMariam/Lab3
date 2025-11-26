@@ -25,7 +25,7 @@ void set_leds(int led_mask) {
   *LEDS = (unsigned int) (led_mask & 0x3FF); 
 }
 
-void get_sw(void) {
+int get_sw(void) {
   return (int)(*SWITCHES & 0x3FF);
 }
 
@@ -244,7 +244,7 @@ static void handle_use(int item) {
     } 
 
     if (cur->north == 7 || cur->south == 7 || cur->east == 7 || cur->west == 7) {
-    rooms[7].locked = 0; 
+    rooms[7].locked = 0; //Go to room array, find room index 7, and set its locked field to false.
     print("You unlock the Storage Room.\n");
   } else {
     print ("Nothing here fits the silver key. \n");
@@ -296,5 +296,284 @@ static int check_end(void) {
   return 0; 
 }
 
-/*Switch Commands- what switches trigger different actions
-button = "do it now", switches = "what to do" */
+/*What is happening in handle_use?
+The player uses switches to chose what ACTION to perform (go, take, use, inventory)
+Which ITEM or direction (flashlight, keys, north, etc.) then presses the button to confirm. So 
+handle_use is called because the player used the switches and pressed the button. It performs the 
+"use item" action chosen by the player. If the selected item is the flashlight, toggle ON/OFF. If the
+item is the silver key, try to unlock room 7 (storage), If item is the brass key, try to unlock room 8 (exit door).
+handle_use does not read the switches, it only reacts to an argument (0, 1, 2) that comes from the switch decoder.*/
+
+/*SWITCH DECODER- what switches trigger different actions
+button = "do it now", switches = "what to do". We want a function that reads
+the switches, decides what the player meant, calls the right game function (handle_go, handle_take, handle_use,
+print_inventory, etc.)
+
+Command Encoding (what the switches mean)
+We will use the 4 lowest switches: SW3...SW0.
+- SW3..SW2 (2 bits) = command type
+- SW1..SW0 (2 bits) = argument 
+
+So: 
+Command type (SW3..SW2)
+Bits:
+- 00 meaning: GO
+- 01 meaning: TAKE
+- 10 meaning: USE
+- 11 meaning: OTHER (look, inventory /help)
+
+Argument (SW1..SW0)
+- For go: 
+00 direction: north
+01 direction: south
+10 direction: east
+11 direction: west
+
+-For take and use:
+00 item: flashlight
+01 item: silver key
+10 item: brass key
+11: unused
+
+-For "other"
+00 action: look
+01 action: inventory
+10 action: unused
+11: unused
+
+*/
+
+static void run_switch_command(void) { //this reads the switches, and then calls on an action function
+  int sw = get_sw() & 0xF; // we only want the 4 switches
+  int cmd = (sw >> 2) & 0xF; //SW3..Sw2
+  int arg = sw & 0xF; //SW1..Sw0 so if switches = 1010 then cmd = 10 (use) and arg = 10 (brass key)
+
+  if (cmd == 0) { //00 = movement (go)
+    handle_go (arg); //arg: 0= north, 1=south, 2=east, 3=west
+    return; 
+  }
+
+  if (cmd == 1) { //10: use item
+    if (arg <= 2) { //arg: 0=flashlight, 1=silver key, 2= brass key
+      handle_use(arg);
+    } else {
+      print ("No such item to use.\n");
+    }
+    return; 
+  }
+
+  if (cmd == 3) { //11 = other actions
+    if (arg == 0) { //look
+      print_room(current_room);
+    } else if (arg == 1) { //inventory
+      print_inventory();
+    } else {
+      print("No action using this switch combo.\n"); //bc arg==2, 3 is unused
+    }
+    return; 
+  }
+  
+}
+
+/*The world layout:
+- 0 Entrance Hall
+- 1 Living Room (flashlight here)
+- 2 Kitchen
+- 3 Basement (dark)
+- 4 Upstairs Hall
+- 5 Bedroom
+- 6 Study (silver key here)
+- 7 Storage Room (locked, brass key here, opens with silver key)
+- 8 Exit Door (locked, win room) */
+
+static void init_world(void) {
+    // Room 0: Entrance Hall
+    rooms[0] = (struct room){
+        "Entrance Hall",
+        "The front door slams shut behind you. The house is silent.",
+        1,  // north -> Living Room
+        -1, // south
+        -1, // east
+        8,  // west -> Exit Door
+        false, // dark
+        false, // locked
+        0,     // lock_msg
+        false, // item_flashlight
+        false, // item_silver_key
+        false  // item_brass_key
+    };
+
+    // Room 1: Living Room (has flashlight)
+    rooms[1] = (struct room){
+        "Living Room",
+        "A cracked fireplace. Something glints under the sofa.",
+        4,  // north -> Upstairs Hall
+        0,  // south -> Entrance Hall
+        2,  // east  -> Kitchen
+        -1, // west
+        false,
+        false,
+        0,
+        true,  // flashlight here
+        false,
+        false
+    };
+
+    // Room 2: Kitchen
+    rooms[2] = (struct room){
+        "Kitchen",
+        "Dusty plates. A narrow stairwell leads down.",
+        -1, // north
+        3,  // south -> Basement
+        7,  // east  -> Storage Room
+        1,  // west  -> Living Room
+        false,
+        false,
+        0,
+        false,
+        false,
+        false
+    };
+
+    // Room 3: Basement (dark room)
+    rooms[3] = (struct room){
+        "Basement",
+        "Cold concrete. You hear water dripping in the dark.",
+        2,  // north -> Kitchen
+        -1,
+        -1,
+        -1,
+        true,  // dark = needs flashlight ON
+        false,
+        0,
+        false,
+        false,
+        false
+    };
+
+    // Room 4: Upstairs Hall
+    rooms[4] = (struct room){
+        "Upstairs Hall",
+        "Portraits stare at you. A door to the east is slightly open.",
+        6,  // north -> Study
+        1,  // south -> Living Room
+        5,  // east  -> Bedroom
+        -1, // west
+        false,
+        false,
+        0,
+        false,
+        false,
+        false
+    };
+
+    // Room 5: Bedroom
+    rooms[5] = (struct room){
+        "Bedroom",
+        "An unmade bed. The window is nailed shut.",
+        -1,
+        -1,
+        -1,
+        4,  // west -> Upstairs Hall
+        false,
+        false,
+        0,
+        false,
+        false,
+        false
+    };
+
+    // Room 6: Study (silver key here)
+    rooms[6] = (struct room){
+        "Study",
+        "A desk covered in notes. One drawer is ajar.",
+        -1,
+        4,  // south -> Upstairs Hall
+        -1,
+        -1,
+        false,
+        false,
+        0,
+        false,
+        true,  // silver key here
+        false
+    };
+
+    // Room 7: Storage Room (locked, brass key here)
+    rooms[7] = (struct room){
+        "Storage Room",
+        "Old crates. A heavy brass key hangs on a hook.",
+        -1,
+        -1,
+        -1,
+        2,   // west -> Kitchen
+        false,
+        true,  // locked at start
+        "The Storage Room is locked. You need a silver key.",
+        false,
+        false,
+        true   // brass key here
+    };
+
+    // Room 8: Exit Door (locked, win room)
+    rooms[8] = (struct room){
+        "Exit Door",
+        "A reinforced door with a brass lock. Fresh air seeps through.",
+        -1,
+        -1,
+        0,   // east -> Entrance Hall
+        -1,
+        false,
+        true,  // locked at start
+        "The Exit Door is locked. A brass key might fit.",
+        false,
+        false,
+        false
+    };
+}
+
+
+//MAIN LOOP, wire everything togather
+/*Main should
+- Initialize world data
+- clear/update LEDs
+- Print intro text
+- enter starting room
+- Run an infinite loop: wait for button press, read switches & run command, check win condition
+- When game is over: turn all LEDs on, halt*/
+
+int main (void) {
+  init_world(); //setup world
+  update_status_leds(); //no items at starts, so LEDs off
+
+  //Intro text
+  print("Mystery House");
+  print("Use SW3..Sw0 + BTN to play.\n");
+  print("See instruction paper for commands and press button to confirm");
+
+  //start in room 0 (Entrance Hall)
+  enter_room(0);
+
+  //Main game loop
+  while (1) { //infinie loop game until break
+    if (get_btn()) { //wait for button press
+      run_switch_command; //perform command based on switches
+    
+
+    while (get_btn()) { //wait until button is released
+      delay(1); //tiny delay to use clock
+    }
+
+    if (check_end()) { //check if game ended (win condition)
+      break;
+    }
+  }
+}
+
+//Game over: turn all LEDs on and halt
+set_leds(0x3FF); //all 10 LEDs ON
+for(;;); //infinite loop (halt CPU) forever.
+return 0;
+
+}
+

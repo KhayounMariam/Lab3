@@ -577,7 +577,7 @@ int main (void) {
       break;
     }
   }
-
+ }
 
 //Game over: turn all LEDs on and halt
 set_leds(0x3FF); //all 10 LEDs ON

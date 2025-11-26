@@ -7,7 +7,7 @@ void handle_interrupt (unsigned cause) {
 
 /*Memory-mapped I/O from lab 3 */
 #define LEDS_ADDR  0x04000000u 
-#define SWITCHES_ADDR 0x040000010u
+#define SWITCHES_ADDR 0x04000010u
 #define BUTTONS_ADDR 0x040000d0u
 
 #define LEDS ((volatile unsigned int*) LEDS_ADDR)
@@ -83,7 +83,7 @@ static bool flashlight_on = false; //does player have the flashlight on?
 - LED1 silver key
 - LED2 brass key
 */
-static void status_of_leds(void) {
+static void update_status_leds(void) {
   int mask = 0; //starts with all LEDs OFF (binary 0000000000)
 
   if (has_flashlight) mask |= (1 << 0); // 1 << 0 = 0001 == LED0 (corresponds to bit 0)
@@ -343,37 +343,46 @@ Argument (SW1..SW0)
 
 */
 
-static void run_switch_command(void) { //this reads the switches, and then calls on an action function
-  int sw = get_sw() & 0xF; // we only want the 4 switches
-  int cmd = (sw >> 2) & 0xF; //SW3..Sw2
-  int arg = sw & 0xF; //SW1..Sw0 so if switches = 1010 then cmd = 10 (use) and arg = 10 (brass key)
+static void run_switch_command(void) {
+  int sw  = get_sw() & 0xF;     // SW3..SW0
+  int cmd = (sw >> 2) & 0x3;    // SW3..SW2
+  int arg = sw & 0x3;           // SW1..SW0
 
-  if (cmd == 0) { //00 = movement (go)
-    handle_go (arg); //arg: 0= north, 1=south, 2=east, 3=west
-    return; 
+  if (cmd == 0) {               // 00 = GO
+    handle_go(arg);             // 0: north, 1: south, 2: east, 3: west
+    return;
   }
 
-  if (cmd == 1) { //10: use item
-    if (arg <= 2) { //arg: 0=flashlight, 1=silver key, 2= brass key
+  if (cmd == 1) {               // 01 = TAKE
+    if (arg <= 2) {             // 0: flashlight, 1: silver key, 2: brass key
+      handle_take(arg);
+    } else {
+      print("Nothing to take with that switch combo.\n");
+    }
+    return;
+  }
+
+  if (cmd == 2) {               // 10 = USE
+    if (arg <= 2) {
       handle_use(arg);
     } else {
-      print ("No such item to use.\n");
+      print("No such item to use.\n");
     }
-    return; 
+    return;
   }
 
-  if (cmd == 3) { //11 = other actions
-    if (arg == 0) { //look
+  if (cmd == 3) {               // 11 = OTHER
+    if (arg == 0) {             // look
       print_room(current_room);
-    } else if (arg == 1) { //inventory
+    } else if (arg == 1) {      // inventory
       print_inventory();
     } else {
-      print("No action using this switch combo.\n"); //bc arg==2, 3 is unused
+      print("No action using this switch combo.\n");
     }
-    return; 
+    return;
   }
-  
 }
+
 
 /*The world layout:
 - 0 Entrance Hall
@@ -557,7 +566,7 @@ int main (void) {
   //Main game loop
   while (1) { //infinie loop game until break
     if (get_btn()) { //wait for button press
-      run_switch_command; //perform command based on switches
+      run_switch_command(); //perform command based on switches
     
 
     while (get_btn()) { //wait until button is released
@@ -568,7 +577,7 @@ int main (void) {
       break;
     }
   }
-}
+
 
 //Game over: turn all LEDs on and halt
 set_leds(0x3FF); //all 10 LEDs ON

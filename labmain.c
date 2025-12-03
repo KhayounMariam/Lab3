@@ -14,6 +14,15 @@ void handle_interrupt (unsigned cause) {
 #define SWITCHES ((volatile unsigned int*) SWITCHES_ADDR)
 #define BUTTONS ((volatile unsigned int*) BUTTONS_ADDR)
 
+//BUTTON SYSTEM
+int pressed_button(void) {
+    static unsigned last = 0; //last remembers the previous button state between function calls. Doesn't reset by itself, we have to click KEY0.
+    unsigned now = *BUTTONS & 1u; //reads the current state of the button from register BUTTONS, 1u masks out all bits except bit 0. Now becomes either 1 (if the button is pressed) or 0 (if the button is currently not pressed)
+    int edge = (now == 1 && last == 0); //Detects a rising egfe, meaning a transition from last=0 (not pressed) now=1 (pressed)
+    last = now; //updates the stored previous state for the next call.
+    return edge; //returns 1 only on the exact moment the button is first pressed. returns 0 on all other calls, even if the button is still being held down.
+}
+
 /* Printing UART logic + delay from dtekv-lib.c, also from lab3*/
 extern void print(char*);
 extern void printc(char);
@@ -320,7 +329,7 @@ Bits:
 - 00 meaning: GO
 - 01 meaning: TAKE
 - 10 meaning: USE
-- 11 meaning: OTHER (look, inventory /help)
+- 11 meaning: OTHER (inventory, look)
 
 Argument (SW1..SW0)
 - For go: 
@@ -564,25 +573,21 @@ int main (void) {
   enter_room(0);
 
     //Main game loop
-  while (1) {
-    if (get_btn()) {
-      run_switch_command();
+ while (1) {
+  if (pressed_button()) {          // edge-based, one press = one command
+    run_switch_command();
 
-      while (get_btn()) {
-        delay(1);
-      }
-
-      if (check_end()) {
-        break;
-      }
+    if (check_end()) {
+      break;
     }
   }
+}
+
 
   // Game over: turn all LEDs on and halt
   set_leds(0x3FF);
-  for(;;);  // infinite halt
-
   return 0;
+  
 }
 
 
